@@ -278,11 +278,29 @@ paths:
       tags: [Devices, Frames]
       summary: Fetch rendered frame data
       description: >
-        Returns raw framebuffer data ready to be written to the e-Ink display.
-        For monochrome devices (bit_depth=1): a single 1-bit packed plane (width*height/8 bytes).
-        For grayscale devices (bit_depth=2): two concatenated 1-bit planes — MSB plane first,
-        then LSB plane (width*height/8*2 bytes total). The MSB plane is written to EPD register
-        0x24 and the LSB plane to register 0x26.
+        Returns framebuffer data appropriate for the device's display capabilities.
+        The server automatically converts the stored PNG frame to the raw format
+        matching the device's registered bit_depth.
+        
+
+        **Supported bit depths:**
+
+
+        - **bit_depth=1**: 1-bit packed monochrome (width×height÷8 bytes).
+          Threshold at 128: values ≥128 become white (1), <128 become black (0).
+
+        - **bit_depth=2**: Two concatenated 1-bit planes for 2-bit grayscale
+          (width×height÷8×2 bytes total). MSB plane is written to EPD register 0x24,
+          LSB plane to register 0x26. Supports 4 gray levels (0=black, 3=white).
+
+        - **bit_depth=4**: 4-bit packed grayscale (width×height÷2 bytes).
+          High nibble is the first pixel, low nibble is the second. 16 gray levels.
+
+        - **bit_depth>4**: Returns PNG image data as-is (for compatibility).
+
+
+        If the frame dimensions don't match the device's display dimensions,
+        the server will automatically resize the image.
       parameters:
         - name: device_id
           in: path
@@ -294,11 +312,27 @@ paths:
           required: true
           schema:
             type: string
+        - name: raw
+          in: query
+          required: false
+          description: >
+            Force raw framebuffer output even for devices with bit_depth > 4.
+            When false (default), devices with high bit depths receive PNG data.
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
-          description: Raw framebuffer payload
+          description: >
+            Framebuffer data. Content-Type depends on device capabilities:
+            application/octet-stream for raw framebuffer (bit_depth 1-4),
+            image/png for higher bit depths or when raw=false.
           content:
             application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            image/png:
               schema:
                 type: string
                 format: binary
@@ -798,7 +832,9 @@ components:
             - 1: Monochrome (1 bit per pixel). Frame size = width * height / 8 bytes.
             - 2: 4-level grayscale. Frame is two concatenated 1-bit planes
               (MSB plane first, then LSB plane). Frame size = width * height / 8 * 2 bytes.
-              Grayscale levels: 0b00=white, 0b01=light gray, 0b10=dark gray, 0b11=black.
+              Grayscale levels: 0=black, 1=dark gray, 2=light gray, 3=white.
+            - 4: 16-level grayscale. Frame size = width * height / 2 bytes.
+              High nibble first pixel, low nibble second. 0=black, 15=white.
           example: 2
         partial_refresh:
           type: boolean

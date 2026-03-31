@@ -206,16 +206,18 @@ void EpdDriver::Init() {
 
 void EpdDriver::Clear() {
     ESP_LOGI(TAG, "Clearing display");
-    int buf_size = buffer_size();
-    uint8_t* white_buf = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
+    int ps = plane_size();
+    uint8_t* white_buf = (uint8_t*)heap_caps_malloc(ps, MALLOC_CAP_SPIRAM);
     if (!white_buf) {
         ESP_LOGE(TAG, "Failed to allocate clear buffer");
         return;
     }
-    memset(white_buf, 0xFF, buf_size);
+    memset(white_buf, 0xFF, ps);
 
-    SendCommand(0x24);
-    WriteBytes(white_buf, buf_size);
+    SendCommand(0x24);  // MSB plane
+    WriteBytes(white_buf, ps);
+    SendCommand(0x26);  // LSB plane
+    WriteBytes(white_buf, ps);
     TurnOnDisplay();
 
     heap_caps_free(white_buf);
@@ -232,16 +234,44 @@ void EpdDriver::Sleep() {
 }
 
 void EpdDriver::DisplayFull(const uint8_t* framebuffer, int len) {
-    ESP_LOGI(TAG, "Full refresh, %d bytes", len);
+    ESP_LOGI(TAG, "Full refresh (1-bit), %d bytes", len);
     SendCommand(0x24);
     WriteBytes(framebuffer, len);
     TurnOnDisplay();
 }
 
 void EpdDriver::DisplayPartial(const uint8_t* framebuffer, int len) {
-    ESP_LOGI(TAG, "Partial refresh, %d bytes", len);
+    ESP_LOGI(TAG, "Partial refresh (1-bit), %d bytes", len);
     SendCommand(0x24);
     WriteBytes(framebuffer, len);
+    TurnOnDisplayPartial();
+}
+
+void EpdDriver::DisplayGrayscaleFull(const uint8_t* framebuffer, int len) {
+    int ps = plane_size();
+    if (len < ps * 2) {
+        ESP_LOGE(TAG, "Grayscale buffer too small: %d < %d", len, ps * 2);
+        return;
+    }
+    ESP_LOGI(TAG, "Full refresh (2-bit grayscale), %d bytes", len);
+    SendCommand(0x24);  // MSB plane
+    WriteBytes(framebuffer, ps);
+    SendCommand(0x26);  // LSB plane
+    WriteBytes(framebuffer + ps, ps);
+    TurnOnDisplay();
+}
+
+void EpdDriver::DisplayGrayscalePartial(const uint8_t* framebuffer, int len) {
+    int ps = plane_size();
+    if (len < ps * 2) {
+        ESP_LOGE(TAG, "Grayscale buffer too small: %d < %d", len, ps * 2);
+        return;
+    }
+    ESP_LOGI(TAG, "Partial refresh (2-bit grayscale), %d bytes", len);
+    SendCommand(0x24);  // MSB plane
+    WriteBytes(framebuffer, ps);
+    SendCommand(0x26);  // LSB plane
+    WriteBytes(framebuffer + ps, ps);
     TurnOnDisplayPartial();
 }
 

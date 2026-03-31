@@ -9,18 +9,20 @@ LlssStateMachine::LlssStateMachine() : state_(DeviceState::BOOTING) {
 
 const char* LlssStateMachine::StateName(DeviceState state) {
     switch (state) {
-        case DeviceState::BOOTING:         return "BOOTING";
-        case DeviceState::WIFI_CONFIG:     return "WIFI_CONFIG";
-        case DeviceState::WIFI_CONNECTING: return "WIFI_CONNECTING";
-        case DeviceState::WIFI_CONNECTED:  return "WIFI_CONNECTED";
-        case DeviceState::REGISTERING:     return "REGISTERING";
-        case DeviceState::POLLING:         return "POLLING";
-        case DeviceState::FETCHING_FRAME:  return "FETCHING_FRAME";
-        case DeviceState::DISPLAYING:      return "DISPLAYING";
-        case DeviceState::SENDING_INPUT:   return "SENDING_INPUT";
-        case DeviceState::SLEEPING:        return "SLEEPING";
-        case DeviceState::ERROR:           return "ERROR";
-        default:                           return "UNKNOWN";
+        case DeviceState::BOOTING:                return "BOOTING";
+        case DeviceState::WIFI_CONFIG:            return "WIFI_CONFIG";
+        case DeviceState::WIFI_CONNECTING:        return "WIFI_CONNECTING";
+        case DeviceState::WIFI_CONNECTED:         return "WIFI_CONNECTED";
+        case DeviceState::REGISTERING:            return "REGISTERING";
+        case DeviceState::WAITING_AUTHORIZATION:  return "WAITING_AUTHORIZATION";
+        case DeviceState::AUTHENTICATING:         return "AUTHENTICATING";
+        case DeviceState::POLLING:                return "POLLING";
+        case DeviceState::FETCHING_FRAME:         return "FETCHING_FRAME";
+        case DeviceState::DISPLAYING:             return "DISPLAYING";
+        case DeviceState::SENDING_INPUT:          return "SENDING_INPUT";
+        case DeviceState::SLEEPING:               return "SLEEPING";
+        case DeviceState::ERROR:                  return "ERROR";
+        default:                                  return "UNKNOWN";
     }
 }
 
@@ -46,27 +48,41 @@ bool LlssStateMachine::IsValidTransition(DeviceState from, DeviceState to) const
 
         case DeviceState::WIFI_CONNECTED:
             return to == DeviceState::REGISTERING ||
+                   to == DeviceState::AUTHENTICATING ||
                    to == DeviceState::POLLING;
 
         case DeviceState::REGISTERING:
-            return to == DeviceState::POLLING;
+            return to == DeviceState::WAITING_AUTHORIZATION ||
+                   to == DeviceState::AUTHENTICATING;
+
+        case DeviceState::WAITING_AUTHORIZATION:
+            return to == DeviceState::AUTHENTICATING ||
+                   to == DeviceState::REGISTERING;
+
+        case DeviceState::AUTHENTICATING:
+            return to == DeviceState::POLLING ||
+                   to == DeviceState::WAITING_AUTHORIZATION ||
+                   to == DeviceState::REGISTERING;
 
         case DeviceState::POLLING:
             return to == DeviceState::FETCHING_FRAME ||
                    to == DeviceState::SENDING_INPUT ||
                    to == DeviceState::SLEEPING ||
+                   to == DeviceState::AUTHENTICATING ||
                    to == DeviceState::WIFI_CONNECTING;
 
         case DeviceState::FETCHING_FRAME:
             return to == DeviceState::DISPLAYING ||
-                   to == DeviceState::POLLING;
+                   to == DeviceState::POLLING ||
+                   to == DeviceState::AUTHENTICATING;
 
         case DeviceState::DISPLAYING:
             return to == DeviceState::POLLING;
 
         case DeviceState::SENDING_INPUT:
             return to == DeviceState::POLLING ||
-                   to == DeviceState::FETCHING_FRAME;
+                   to == DeviceState::FETCHING_FRAME ||
+                   to == DeviceState::AUTHENTICATING;
 
         case DeviceState::SLEEPING:
             return to == DeviceState::POLLING ||

@@ -10,6 +10,8 @@ enum class DeviceState {
     WIFI_CONNECTING,
     WIFI_CONNECTED,
     REGISTERING,
+    WAITING_AUTHORIZATION,  // Device registered but pending admin approval
+    AUTHENTICATING,         // Getting refresh/access tokens
     POLLING,
     FETCHING_FRAME,
     DISPLAYING,

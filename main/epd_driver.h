@@ -31,12 +31,21 @@ public:
     // Write raw 1-bit packed framebuffer to display (partial refresh)
     void DisplayPartial(const uint8_t* framebuffer, int len);
 
+    // Write 2-bit grayscale framebuffer (full refresh)
+    // Buffer layout: first plane_size bytes = MSB (reg 0x24), next plane_size bytes = LSB (reg 0x26)
+    // Grayscale levels: 0b00=white, 0b01=light gray, 0b10=dark gray, 0b11=black
+    void DisplayGrayscaleFull(const uint8_t* framebuffer, int len);
+
+    // Write 2-bit grayscale framebuffer (partial refresh)
+    void DisplayGrayscalePartial(const uint8_t* framebuffer, int len);
+
     // Initialize partial refresh mode
     void InitPartial();
 
     int width() const { return width_; }
     int height() const { return height_; }
-    int buffer_size() const { return width_ * height_ / 8; }
+    int plane_size() const { return width_ * height_ / 8; }
+    int grayscale_buffer_size() const { return plane_size() * 2; }
 
 private:
     const int width_;

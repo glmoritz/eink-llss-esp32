@@ -14,8 +14,9 @@
 
 #define EPD_WIDTH   800
 #define EPD_HEIGHT  480
-#define EPD_BIT_DEPTH 1
-#define EPD_BUFFER_SIZE (EPD_WIDTH * EPD_HEIGHT / 8)  // 48000 bytes
+#define EPD_BIT_DEPTH 2
+#define EPD_PLANE_SIZE (EPD_WIDTH * EPD_HEIGHT / 8)        // 48000 bytes (one 1-bit plane)
+#define EPD_GRAYSCALE_BUFFER_SIZE (EPD_PLANE_SIZE * 2)     // 96000 bytes (MSB + LSB planes)
 
 // -- AXP2101 PMIC --
 #define PMIC_I2C_SDA_PIN  GPIO_NUM_41

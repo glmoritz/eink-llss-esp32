@@ -113,10 +113,10 @@ void LlssApplication::ShowStatusMessage(const char* line1, const char* line2) {
     ESP_LOGI(TAG, "STATUS: %s%s%s", line1, line2 ? " | " : "", line2 ? line2 : "");
 
     // Clear the EPD buffer with white
-    int buf_size = epd_->buffer_size();
-    uint8_t* buf = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
+    int ps = epd_->plane_size();
+    uint8_t* buf = (uint8_t*)heap_caps_malloc(ps, MALLOC_CAP_SPIRAM);
     if (!buf) return;
-    memset(buf, 0xFF, buf_size);
+    memset(buf, 0xFF, ps);
 
     // Simple: draw a small indicator pattern in top-left to show device is alive
     // A 16-pixel wide black bar at top
@@ -126,7 +126,7 @@ void LlssApplication::ShowStatusMessage(const char* line1, const char* line2) {
         }
     }
 
-    epd_->DisplayFull(buf, buf_size);
+    epd_->DisplayFull(buf, ps);
     heap_caps_free(buf);
 }
 
@@ -134,6 +134,7 @@ bool LlssApplication::LoadCredentials(DeviceCredentials& creds) {
     Settings settings(NVS_NAMESPACE_DEVICE);
     creds.device_id = settings.GetString("device_id");
     creds.device_secret = settings.GetString("device_secret");
+    creds.refresh_token = settings.GetString("refresh_token");
     creds.access_token = settings.GetString("access_token");
     return !creds.device_id.empty();
 }
@@ -142,6 +143,7 @@ void LlssApplication::SaveCredentials(const DeviceCredentials& creds) {
     Settings settings(NVS_NAMESPACE_DEVICE, true);
     settings.SetString("device_id", creds.device_id);
     settings.SetString("device_secret", creds.device_secret);
+    settings.SetString("refresh_token", creds.refresh_token);
     settings.SetString("access_token", creds.access_token);
 }
 
@@ -228,12 +230,21 @@ void LlssApplication::HandleWifiConfig() {
 }
 
 void LlssApplication::HandleWifiConnected() {
-    // Check for stored device credentials
     DeviceCredentials creds;
     if (LoadCredentials(creds)) {
         ESP_LOGI(TAG, "Loaded device credentials: %s", creds.device_id.c_str());
         client_->SetCredentials(creds);
-        state_machine_.SetState(DeviceState::POLLING);
+
+        if (!creds.refresh_token.empty()) {
+            // Have refresh token — go straight to authentication (get access token)
+            state_machine_.SetState(DeviceState::AUTHENTICATING);
+        } else if (!creds.device_secret.empty()) {
+            // Have device_secret but no refresh token — need to authenticate
+            state_machine_.SetState(DeviceState::AUTHENTICATING);
+        } else {
+            // Only device_id, no secret — re-register
+            state_machine_.SetState(DeviceState::REGISTERING);
+        }
     } else {
         state_machine_.SetState(DeviceState::REGISTERING);
     }
@@ -251,12 +262,150 @@ void LlssApplication::HandleRegistration() {
     if (ok) {
         SaveCredentials(creds);
         client_->SetCredentials(creds);
-        state_machine_.SetState(DeviceState::POLLING);
+        ESP_LOGI(TAG, "Registered, pending admin authorization");
+        state_machine_.SetState(DeviceState::WAITING_AUTHORIZATION);
     } else {
-        ESP_LOGE(TAG, "Registration failed, retrying in 10s");
-        vTaskDelay(pdMS_TO_TICKS(10000));
-        // Stay in REGISTERING state, will retry
+        // 409 = already exists, try to authenticate with stored creds
+        DeviceCredentials stored;
+        if (LoadCredentials(stored) && !stored.device_secret.empty()) {
+            client_->SetCredentials(stored);
+            state_machine_.SetState(DeviceState::AUTHENTICATING);
+        } else {
+            ESP_LOGE(TAG, "Registration failed, retrying in 10s");
+            vTaskDelay(pdMS_TO_TICKS(10000));
+            // Stay in REGISTERING, will retry
+        }
     }
+}
+
+void LlssApplication::HandleWaitingAuthorization() {
+    ShowStatusMessage("Waiting for admin", "authorization...");
+
+    // Poll /auth/devices/token periodically to check if authorized
+    DeviceCredentials creds = client_->GetCredentials();
+
+    AuthStatus status = client_->AuthenticateDevice(
+        hardware_id_, creds.device_secret,
+        LLSS_FIRMWARE_VERSION,
+        EPD_WIDTH, EPD_HEIGHT, EPD_BIT_DEPTH, true,
+        creds);
+
+    switch (status) {
+        case AuthStatus::AUTHORIZED:
+            ESP_LOGI(TAG, "Device authorized! Got refresh token.");
+            SaveCredentials(creds);
+            client_->SetCredentials(creds);
+            state_machine_.SetState(DeviceState::AUTHENTICATING);
+            break;
+
+        case AuthStatus::PENDING:
+            ESP_LOGI(TAG, "Still pending authorization, retry in 15s");
+            vTaskDelay(pdMS_TO_TICKS(15000));
+            // Stay in WAITING_AUTHORIZATION
+            break;
+
+        case AuthStatus::REJECTED:
+        case AuthStatus::REVOKED:
+            ESP_LOGE(TAG, "Device rejected/revoked");
+            ShowStatusMessage("Device rejected", "Contact admin");
+            state_machine_.SetState(DeviceState::ERROR);
+            break;
+
+        default:
+            ESP_LOGE(TAG, "Auth check failed, retry in 10s");
+            vTaskDelay(pdMS_TO_TICKS(10000));
+            break;
+    }
+}
+
+void LlssApplication::HandleAuthentication() {
+    DeviceCredentials creds = client_->GetCredentials();
+
+    // If we have a refresh token, exchange it for an access token
+    if (!creds.refresh_token.empty()) {
+        std::string access_token;
+        if (client_->RefreshAccessToken(creds.refresh_token, access_token)) {
+            creds.access_token = access_token;
+            SaveCredentials(creds);
+            client_->SetCredentials(creds);
+            ESP_LOGI(TAG, "Got access token, ready to poll");
+            state_machine_.SetState(DeviceState::POLLING);
+            return;
+        }
+
+        // Refresh token expired/invalid — try to get a new one with device_secret
+        ESP_LOGW(TAG, "Refresh token invalid, re-authenticating");
+        creds.refresh_token.clear();
+    }
+
+    // No refresh token — authenticate with device_secret to get one
+    if (!creds.device_secret.empty()) {
+        AuthStatus status = client_->AuthenticateDevice(
+            hardware_id_, creds.device_secret,
+            LLSS_FIRMWARE_VERSION,
+            EPD_WIDTH, EPD_HEIGHT, EPD_BIT_DEPTH, true,
+            creds);
+
+        switch (status) {
+            case AuthStatus::AUTHORIZED:
+                if (!creds.refresh_token.empty()) {
+                    SaveCredentials(creds);
+                    client_->SetCredentials(creds);
+                    // Now get access token from refresh token
+                    std::string access_token;
+                    if (client_->RefreshAccessToken(creds.refresh_token, access_token)) {
+                        creds.access_token = access_token;
+                        SaveCredentials(creds);
+                        state_machine_.SetState(DeviceState::POLLING);
+                    } else {
+                        ESP_LOGE(TAG, "Failed to get access token, retry in 5s");
+                        vTaskDelay(pdMS_TO_TICKS(5000));
+                    }
+                }
+                break;
+
+            case AuthStatus::PENDING:
+                state_machine_.SetState(DeviceState::WAITING_AUTHORIZATION);
+                break;
+
+            case AuthStatus::REJECTED:
+            case AuthStatus::REVOKED:
+                ShowStatusMessage("Device rejected", "Contact admin");
+                state_machine_.SetState(DeviceState::ERROR);
+                break;
+
+            default:
+                ESP_LOGE(TAG, "Authentication failed, retry in 10s");
+                vTaskDelay(pdMS_TO_TICKS(10000));
+                break;
+        }
+    } else {
+        // No credentials at all — need to register
+        state_machine_.SetState(DeviceState::REGISTERING);
+    }
+}
+
+bool LlssApplication::EnsureAccessToken() {
+    // If last call got 401, refresh the access token
+    if (!client_->LastCallWas401()) return true;
+
+    ESP_LOGW(TAG, "Got 401, refreshing access token");
+    DeviceCredentials creds = client_->GetCredentials();
+    if (creds.refresh_token.empty()) {
+        state_machine_.SetState(DeviceState::AUTHENTICATING);
+        return false;
+    }
+
+    std::string access_token;
+    if (client_->RefreshAccessToken(creds.refresh_token, access_token)) {
+        creds.access_token = access_token;
+        SaveCredentials(creds);
+        return true;
+    }
+
+    // Refresh token also failed — full re-auth
+    state_machine_.SetState(DeviceState::AUTHENTICATING);
+    return false;
 }
 
 void LlssApplication::HandlePolling() {
@@ -264,9 +413,20 @@ void LlssApplication::HandlePolling() {
     bool ok = client_->GetDeviceState(last_frame_id_, last_event_id_, response);
 
     if (!ok) {
-        ESP_LOGE(TAG, "Poll failed, will retry");
-        poll_interval_ms_ = LLSS_MAX_POLL_MS;
-        return;
+        if (client_->LastCallWas401()) {
+            if (!EnsureAccessToken()) return;
+            // Retry after token refresh
+            ok = client_->GetDeviceState(last_frame_id_, last_event_id_, response);
+            if (!ok) {
+                ESP_LOGE(TAG, "Poll failed after token refresh");
+                poll_interval_ms_ = LLSS_MAX_POLL_MS;
+                return;
+            }
+        } else {
+            ESP_LOGE(TAG, "Poll failed, will retry");
+            poll_interval_ms_ = LLSS_MAX_POLL_MS;
+            return;
+        }
     }
 
     active_instance_id_ = response.active_instance_id;
@@ -306,32 +466,46 @@ void LlssApplication::HandleFetchFrame(const std::string& frame_id) {
         return;
     }
 
-    int expected = epd_->buffer_size();
-    if (frame_len != expected) {
-        ESP_LOGW(TAG, "Frame size mismatch: got %d, expected %d", frame_len, expected);
-        // Try to display anyway if we got enough data
-        if (frame_len < expected) {
+    int ps = epd_->plane_size();
+    int gs_size = epd_->grayscale_buffer_size();
+    bool is_grayscale = (frame_len == gs_size);
+    bool is_mono = (frame_len == ps);
+
+    if (!is_grayscale && !is_mono) {
+        ESP_LOGW(TAG, "Frame size %d doesn't match mono (%d) or grayscale (%d)", frame_len, ps, gs_size);
+        // Treat as mono if at least one plane's worth of data
+        if (frame_len >= ps) {
+            is_mono = true;
+        } else {
             // Pad with white
-            uint8_t* padded = (uint8_t*)heap_caps_realloc(framebuffer, expected,
+            uint8_t* padded = (uint8_t*)heap_caps_realloc(framebuffer, ps,
                                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (padded) {
-                memset(padded + frame_len, 0xFF, expected - frame_len);
+                memset(padded + frame_len, 0xFF, ps - frame_len);
                 framebuffer = padded;
-                frame_len = expected;
+                frame_len = ps;
             }
+            is_mono = true;
         }
     }
 
     state_machine_.SetState(DeviceState::DISPLAYING);
 
-    // Write to EPD
     if (last_frame_id_.empty()) {
-        // First frame - do full refresh
-        epd_->DisplayFull(framebuffer, frame_len > expected ? expected : frame_len);
+        // First frame - full refresh
+        if (is_grayscale) {
+            epd_->DisplayGrayscaleFull(framebuffer, gs_size);
+        } else {
+            epd_->DisplayFull(framebuffer, ps);
+        }
     } else {
-        // Subsequent frames - use partial refresh
+        // Subsequent frames - partial refresh
         epd_->InitPartial();
-        epd_->DisplayPartial(framebuffer, frame_len > expected ? expected : frame_len);
+        if (is_grayscale) {
+            epd_->DisplayGrayscalePartial(framebuffer, gs_size);
+        } else {
+            epd_->DisplayPartial(framebuffer, ps);
+        }
     }
 
     last_frame_id_ = frame_id;
@@ -346,12 +520,41 @@ void LlssApplication::HandleSendInput(const ButtonEvent& event) {
     const char* btn_name = InputManager::ButtonIdToString(event.button);
     const char* evt_type = InputManager::EventTypeToString(event.type);
 
-    bool ok = client_->SendInput(btn_name, evt_type);
+    InputProcessResult result;
+    bool ok = client_->SendInput(btn_name, evt_type, result);
+
     if (!ok) {
-        ESP_LOGE(TAG, "Failed to send input event");
+        if (client_->LastCallWas401()) {
+            if (EnsureAccessToken()) {
+                ok = client_->SendInput(btn_name, evt_type, result);
+            }
+        }
+        if (!ok) {
+            ESP_LOGE(TAG, "Failed to send input event");
+            state_machine_.SetState(DeviceState::POLLING);
+            return;
+        }
     }
 
-    // After sending input, immediately poll for update
+    switch (result.status) {
+        case InputResultStatus::NEW_FRAME:
+            if (!result.frame_id.empty()) {
+                state_machine_.SetState(DeviceState::FETCHING_FRAME);
+                HandleFetchFrame(result.frame_id);
+                return;
+            }
+            break;
+
+        case InputResultStatus::POLL:
+            if (result.poll_after_ms > 0) {
+                poll_interval_ms_ = result.poll_after_ms;
+            }
+            break;
+
+        default:
+            break;
+    }
+
     state_machine_.SetState(DeviceState::POLLING);
 }
 
@@ -379,9 +582,19 @@ void LlssApplication::Run() {
     while (true) {
         DeviceState current = state_machine_.GetState();
 
-        // Handle registration if needed
+        // Handle registration flow
         if (current == DeviceState::REGISTERING) {
             HandleRegistration();
+            continue;
+        }
+
+        if (current == DeviceState::WAITING_AUTHORIZATION) {
+            HandleWaitingAuthorization();
+            continue;
+        }
+
+        if (current == DeviceState::AUTHENTICATING) {
+            HandleAuthentication();
             continue;
         }
 
@@ -421,14 +634,29 @@ void LlssApplication::Run() {
                 if (has_pending_button_) {
                     has_pending_button_ = false;
                     HandleSendInput(pending_button_event_);
-                    // After input, poll immediately
-                    HandlePolling();
+                    // After input, poll immediately if still in POLLING
+                    if (state_machine_.GetState() == DeviceState::POLLING) {
+                        HandlePolling();
+                    }
                     continue;
                 }
             }
 
-            // Regular poll
-            HandlePolling();
+            // Regular poll (check state in case auth handler changed it)
+            if (state_machine_.GetState() == DeviceState::POLLING) {
+                HandlePolling();
+            }
+            continue;
+        }
+
+        if (current == DeviceState::ERROR) {
+            ESP_LOGE(TAG, "In ERROR state, waiting 30s before retry");
+            vTaskDelay(pdMS_TO_TICKS(30000));
+            state_machine_.SetState(DeviceState::BOOTING);
+            HandleBoot();
+            if (state_machine_.GetState() == DeviceState::WIFI_CONNECTED) {
+                HandleWifiConnected();
+            }
             continue;
         }
 

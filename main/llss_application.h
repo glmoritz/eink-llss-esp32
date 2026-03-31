@@ -71,10 +71,15 @@ private:
     void HandleWifiConfig();
     void HandleWifiConnected();
     void HandleRegistration();
+    void HandleWaitingAuthorization();
+    void HandleAuthentication();
     void HandlePolling();
     void HandleFetchFrame(const std::string& frame_id);
     void HandleSendInput(const ButtonEvent& event);
     void HandleSleep(int duration_ms);
+
+    // Token management
+    bool EnsureAccessToken();  // Refreshes access token if needed, returns true if valid
 
     // Display status messages on the EPD
     void ShowStatusMessage(const char* line1, const char* line2 = nullptr);

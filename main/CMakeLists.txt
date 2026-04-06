@@ -32,9 +32,10 @@ idf_component_register(SRCS ${SOURCES}
                         esp_http_server
                         esp_https_ota
                         esp_event
+                        esp_timer
+                        esp-tls
                         nvs_flash
-                        json
-                        esp_tls
+                        cjson
                     )
 
 target_compile_definitions(${COMPONENT_LIB}

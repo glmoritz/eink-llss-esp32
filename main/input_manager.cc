@@ -33,16 +33,21 @@ void InputManager::Init() {
     ESP_LOGI(TAG, "Initializing input manager");
 
     // Initialize MCP23017 for matrix buttons BTN_1..BTN_8
-    mcp_.Init();
-    mcp_.SetCallback([this](uint8_t button_index, bool pressed) {
-        if (callback_ && button_index < 8) {
-            ButtonEvent ev;
-            ev.button = static_cast<ButtonId>(button_index);
-            ev.type = pressed ? ButtonEventType::PRESS : ButtonEventType::RELEASE;
-            ev.timestamp_ms = esp_timer_get_time() / 1000;
-            callback_(ev);
-        }
-    });
+    esp_err_t mcp_ret = mcp_.Init();
+    if (mcp_ret == ESP_OK) {
+        mcp_.SetCallback([this](uint8_t button_index, bool pressed) {
+            if (callback_ && button_index < 8) {
+                ButtonEvent ev;
+                ev.button = static_cast<ButtonId>(button_index);
+                ev.type = pressed ? ButtonEventType::PRESS : ButtonEventType::RELEASE;
+                ev.timestamp_ms = esp_timer_get_time() / 1000;
+                callback_(ev);
+            }
+        });
+        ESP_LOGI(TAG, "MCP23017 buttons (BTN_1..BTN_8) available");
+    } else {
+        ESP_LOGW(TAG, "MCP23017 not available, buttons BTN_1..BTN_8 will not work");
+    }
 
     // Initialize direct GPIO buttons
     gpio_buttons_[0] = {enter_pin_, ButtonId::ENTER, true, 0, false, 0, false};
@@ -116,29 +121,26 @@ void InputManager::PollGpioButton(GpioState& state) {
 }
 
 void InputManager::Poll() {
-    // Check MCP23017 interrupt pin
-    // If low, an interrupt occurred - handle it
-    if (gpio_get_level(mcp_.ReadButtons() ? GPIO_NUM_NC : GPIO_NUM_NC) == 0) {
-        // Simplified: just poll MCP state periodically
-    }
-    // Always poll MCP23017 state (simpler than ISR-driven for now)
-    uint8_t current = mcp_.ReadButtons();
-    static uint8_t last_mcp = 0;
-    if (current != last_mcp) {
-        for (int i = 0; i < 8; i++) {
-            bool was_pressed = (last_mcp & (1 << i)) != 0;
-            bool is_pressed = (current & (1 << i)) != 0;
-            if (was_pressed != is_pressed) {
-                if (callback_) {
-                    ButtonEvent ev;
-                    ev.button = static_cast<ButtonId>(i);
-                    ev.type = is_pressed ? ButtonEventType::PRESS : ButtonEventType::RELEASE;
-                    ev.timestamp_ms = esp_timer_get_time() / 1000;
-                    callback_(ev);
+    // Poll MCP23017 buttons if available
+    if (mcp_.IsInitialized()) {
+        uint8_t current = mcp_.ReadButtons();
+        static uint8_t last_mcp = 0;
+        if (current != last_mcp) {
+            for (int i = 0; i < 8; i++) {
+                bool was_pressed = (last_mcp & (1 << i)) != 0;
+                bool is_pressed = (current & (1 << i)) != 0;
+                if (was_pressed != is_pressed) {
+                    if (callback_) {
+                        ButtonEvent ev;
+                        ev.button = static_cast<ButtonId>(i);
+                        ev.type = is_pressed ? ButtonEventType::PRESS : ButtonEventType::RELEASE;
+                        ev.timestamp_ms = esp_timer_get_time() / 1000;
+                        callback_(ev);
+                    }
                 }
             }
+            last_mcp = current;
         }
-        last_mcp = current;
     }
 
     // Poll GPIO buttons

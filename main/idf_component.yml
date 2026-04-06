@@ -1,9 +1,6 @@
 ## IDF Component Manager Manifest File
-## LLSS e-Ink Client - minimal dependencies
+## LLSS e-Ink Client - minimal dependencies for ESP-IDF 5.5+
 dependencies:
   idf:
-    version: ">=5.1.0"
-  espressif/esp_tls:
-    version: "*"
-  espressif/json:
-    version: "*"
+    version: ">=5.5.0"
+  espressif/cjson: "*"

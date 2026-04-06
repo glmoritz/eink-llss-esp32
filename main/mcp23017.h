@@ -3,6 +3,7 @@
 
 #include <driver/i2c_master.h>
 #include <driver/gpio.h>
+#include <esp_attr.h>
 #include <functional>
 #include <cstdint>
 
@@ -35,7 +36,11 @@ public:
     ~Mcp23017();
 
     // Initialize the MCP23017 for 8 buttons on port A with interrupts
-    void Init();
+    // Returns ESP_OK on success, error code on failure
+    esp_err_t Init();
+
+    // Check if device was successfully initialized
+    bool IsInitialized() const { return initialized_; }
 
     // Read all 8 button states (bit per button, 1 = pressed)
     uint8_t ReadButtons();
@@ -51,9 +56,10 @@ private:
     gpio_num_t int_pin_;
     ButtonCallback callback_;
     uint8_t last_state_;
+    bool initialized_;
 
-    void WriteReg(uint8_t reg, uint8_t value);
-    uint8_t ReadReg(uint8_t reg);
+    esp_err_t WriteReg(uint8_t reg, uint8_t value);
+    esp_err_t ReadReg(uint8_t reg, uint8_t* value);
 
     static void IRAM_ATTR GpioIsrHandler(void* arg);
 };

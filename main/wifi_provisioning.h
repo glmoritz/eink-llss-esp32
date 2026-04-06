@@ -1,6 +1,7 @@
 #ifndef WIFI_PROVISIONING_H
 #define WIFI_PROVISIONING_H
 
+#include <esp_event.h>
 #include <string>
 #include <functional>
 

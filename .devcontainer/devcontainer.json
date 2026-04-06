@@ -1,6 +1,6 @@
 {
     "name": "ESP-IDF Development",
-    "image": "espressif/idf:v5.3",
+    "image": "espressif/idf:latest",
     "runArgs": [
         "--privileged"
     ],
@@ -17,7 +17,6 @@
             "settings": {
                 "idf.espIdfPath": "/opt/esp/idf",
                 "idf.toolsPath": "/opt/esp",
-                "idf.pythonBinPath": "/opt/esp/python_env/idf5.3_py3.10_env/bin/python",
                 "idf.gitPath": "/usr/bin/git",
                 "terminal.integrated.defaultProfile.linux": "bash",
                 "terminal.integrated.profiles.linux": {
@@ -37,9 +36,10 @@
     },
     "containerEnv": {
         "IDF_PATH": "/opt/esp/idf",
-        "IDF_TOOLS_PATH": "/opt/esp"
+        "IDF_TOOLS_PATH": "/opt/esp",
+        "ESPPORT": "/dev/ttyACM0"
     },
-    "postCreateCommand": ". /opt/esp/idf/export.sh",
+    "postCreateCommand": ". /opt/esp/idf/export.sh && echo '. /opt/esp/idf/export.sh' >> ~/.bashrc",
     "postStartCommand": ". /opt/esp/idf/export.sh",
     "forwardPorts": [],
     "remoteUser": "root"

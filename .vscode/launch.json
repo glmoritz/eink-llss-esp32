@@ -1,0 +1,68 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "ESP-IDF Debug (OpenOCD)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/eink-llss.elf",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/opt/esp/tools/xtensa-esp-elf-gdb/*/xtensa-esp-elf-gdb/bin/xtensa-esp32s3-elf-gdb",
+            "cwd": "${workspaceFolder}",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Connect to OpenOCD",
+                    "text": "target extended-remote :3333",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Reset and halt target",
+                    "text": "monitor reset halt",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Flash application",
+                    "text": "monitor program_esp ${workspaceFolder}/build/eink-llss.bin 0x10000 verify",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Set hardware breakpoint at app_main",
+                    "text": "thbreak app_main",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Continue to breakpoint",
+                    "text": "continue",
+                    "ignoreFailures": false
+                }
+            ],
+            "preLaunchTask": "OpenOCD"
+        },
+        {
+            "name": "ESP-IDF Debug (Attach)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/eink-llss.elf",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/opt/esp/tools/xtensa-esp-elf-gdb/*/xtensa-esp-elf-gdb/bin/xtensa-esp32s3-elf-gdb",
+            "cwd": "${workspaceFolder}",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Connect to OpenOCD",
+                    "text": "target extended-remote :3333",
+                    "ignoreFailures": false
+                }
+            ]
+        }
+    ]
+}

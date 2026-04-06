@@ -1,0 +1,7 @@
+{
+    "idf.currentSetup": "/home/guilherme/esp/v5.4/esp-idf",
+    "idf.openOcdConfigs": [
+        "board/esp32s3-builtin.cfg"
+    ],
+    "idf.flashType": "JTAG"
+}

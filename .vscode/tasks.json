@@ -1,0 +1,110 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "idf.py build",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": {
+                "owner": "cpp",
+                "fileLocation": ["relative", "${workspaceFolder}"],
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            }
+        },
+        {
+            "label": "Set Target: ESP32",
+            "type": "shell",
+            "command": "idf.py set-target esp32"
+        },
+        {
+            "label": "Set Target: ESP32-S3",
+            "type": "shell",
+            "command": "idf.py set-target esp32s3"
+        },
+        {
+            "label": "Set Target: ESP32-C3",
+            "type": "shell",
+            "command": "idf.py set-target esp32c3"
+        },
+        {
+            "label": "Set Target: ESP32-C6",
+            "type": "shell",
+            "command": "idf.py set-target esp32c6"
+        },
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "idf.py fullclean"
+        },
+        {
+            "label": "Flash",
+            "type": "shell",
+            "command": "idf.py -p ${input:serialPort} flash",
+            "dependsOn": "Build"
+        },
+        {
+            "label": "Monitor",
+            "type": "shell",
+            "command": "idf.py -p ${input:serialPort} monitor",
+            "isBackground": true
+        },
+        {
+            "label": "Flash and Monitor",
+            "type": "shell",
+            "command": "idf.py -p ${input:serialPort} flash monitor",
+            "dependsOn": "Build"
+        },
+        {
+            "label": "OpenOCD",
+            "type": "shell",
+            "command": "idf.py openocd",
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^(Error:.*)$",
+                    "message": 1
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "^Open On-Chip Debugger",
+                    "endsPattern": "^Info : Listening on port \\d+ for gdb connections"
+                }
+            }
+        },
+        {
+            "label": "Menuconfig",
+            "type": "shell",
+            "command": "idf.py menuconfig"
+        },
+        {
+            "label": "Erase Flash",
+            "type": "shell",
+            "command": "idf.py -p ${input:serialPort} erase-flash"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "serialPort",
+            "description": "Serial port for ESP32",
+            "type": "pickString",
+            "options": [
+                "/dev/ttyUSB0",
+                "/dev/ttyUSB1",
+                "/dev/ttyACM0",
+                "/dev/ttyACM1"
+            ],
+            "default": "/dev/ttyUSB0"
+        }
+    ]
+}
